@@ -9,6 +9,7 @@ import (
 
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/storage/remote"
+	"time"
 )
 
 type p2cReader struct {
@@ -181,9 +182,12 @@ func (r *p2cReader) Read(req *remote.ReadRequest) (*remote.ReadResponse, error) 
 	// for debugging/figuring out query format/etc
 	rcount := 0
 	for _, q := range req.Queries {
-		// remove me..
-		fmt.Printf("\nquery: start: %d, end: %d\n\n", q.StartTimestampMs, q.EndTimestampMs)
 
+		tm1 := time.Unix(q.StartTimestampMs, 0)
+		tm2 := time.Unix(q.EndTimestampMs, 0)
+		// remove me..
+		fmt.Printf("\nquery: start: %d, end: %d\n\n", tm1.Format("2006-01-02 03:04:05 PM"), tm2.Format("2006-01-02 03:04:05 PM"))
+		fmt.Printf("\nsql comes from prometheus %s\n", q.String());
 		// get the select sql
 		sqlStr, err = r.getSQL(q)
 		fmt.Printf("query: running sql: %s\n\n", sqlStr)
