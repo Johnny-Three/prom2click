@@ -183,8 +183,8 @@ func (r *p2cReader) Read(req *remote.ReadRequest) (*remote.ReadResponse, error) 
 	rcount := 0
 	for _, q := range req.Queries {
 
-		tm1 := time.Unix(q.StartTimestampMs, 0)
-		tm2 := time.Unix(q.EndTimestampMs, 0)
+		tm1 := time.Unix(q.StartTimestampMs/1000, 0)
+		tm2 := time.Unix(q.EndTimestampMs/1000, 0)
 		// remove me..
 		fmt.Printf("\nquery: start: %s, end: %s\n\n", tm1.Format("2006-01-02 03:04:05 PM"), tm2.Format("2006-01-02 03:04:05 PM"))
 		fmt.Printf("\nsql comes from prometheus %s\n", q.String());
