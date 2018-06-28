@@ -59,6 +59,9 @@ func NewP2CServer(conf *config) (*p2cServer, error) {
 	prometheus.MustRegister(c.rx)
 
 	c.mux.HandleFunc(c.conf.HTTPWritePath, func(w http.ResponseWriter, r *http.Request) {
+		//close the body ..
+		defer r.Body.Close()
+
 		compressed, err := ioutil.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -81,6 +84,9 @@ func NewP2CServer(conf *config) (*p2cServer, error) {
 	})
 
 	c.mux.HandleFunc("/read", func(w http.ResponseWriter, r *http.Request) {
+		//close the body ..
+		defer r.Body.Close()
+
 		compressed, err := ioutil.ReadAll(r.Body)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
