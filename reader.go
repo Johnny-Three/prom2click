@@ -181,6 +181,7 @@ func (r *p2cReader) Read(req *remote.ReadRequest) (*remote.ReadResponse, error) 
 
 	// for debugging/figuring out query format/etc
 	rcount := 0
+
 	for _, q := range req.Queries {
 
 		tm1 := time.Unix(q.StartTimestampMs/1000, 0)
@@ -247,8 +248,17 @@ func (r *p2cReader) Read(req *remote.ReadRequest) (*remote.ReadResponse, error) 
 		resp.Results[0].Timeseries = append(resp.Results[0].Timeseries, ts)
 	}
 
-	fmt.Printf("query: returning %d rows for %d queries\n", rcount, len(req.Queries))
-
+	// label ..
+	label := ""
+	for _, m := range req.Queries[0].Matchers {
+		// __name__ is handled specially - match it directly
+		// as it is stored in the name column (it's also in tags as __name__)
+		// note to self: add name to index.. otherwise this will be slow..
+		if m.Name == model.MetricNameLabel {
+			label = m.Value
+		}
+	}
+	fmt.Printf("query:[getting parameter:%s ]: returning %d rows for %d queries\n", label, rcount, len(req.Queries))
 	return &resp, nil
 
 }

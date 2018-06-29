@@ -104,13 +104,15 @@ func NewP2CServer(conf *config) (*p2cServer, error) {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-
+		start := time.Now()
 		var resp *remote.ReadResponse
 		resp, err = c.reader.Read(&req)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		end := time.Now().Sub(start)
+		fmt.Printf("the query exaushted %v\n",end)
 
 		data, err := proto.Marshal(resp)
 		if err != nil {
