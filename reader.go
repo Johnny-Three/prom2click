@@ -158,6 +158,9 @@ func NewP2CReader(conf *config) (*p2cReader, error) {
 	r := new(p2cReader)
 	r.conf = conf
 	r.db, err = sql.Open("clickhouse", r.conf.ChDSN)
+	r.db.SetMaxOpenConns(100)
+	r.db.SetMaxIdleConns(10)
+	r.db.Ping()
 	if err != nil {
 		fmt.Printf("Error connecting to clickhouse: %s\n", err.Error())
 		return r, err

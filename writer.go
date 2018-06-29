@@ -33,6 +33,9 @@ func NewP2CWriter(conf *config, reqs chan *p2cRequest) (*p2cWriter, error) {
 	w.conf = conf
 	w.requests = reqs
 	w.db, err = sql.Open("clickhouse", w.conf.ChDSN)
+	w.db.SetMaxOpenConns(100)
+	w.db.SetMaxIdleConns(10)
+	w.db.Ping()
 	if err != nil {
 		fmt.Printf("Error connecting to clickhouse: %s\n", err.Error())
 		return w, err

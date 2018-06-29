@@ -105,6 +105,7 @@ func NewP2CServer(conf *config) (*p2cServer, error) {
 			return
 		}
 		start := time.Now()
+		fmt.Printf("the query stars at the time %v\n", start)
 		var resp *remote.ReadResponse
 		resp, err = c.reader.Read(&req)
 		if err != nil {
@@ -112,7 +113,7 @@ func NewP2CServer(conf *config) (*p2cServer, error) {
 			return
 		}
 		end := time.Now().Sub(start)
-		fmt.Printf("the query exaushted %v\n",end)
+		fmt.Printf("the query exaushted %v\n", end)
 
 		data, err := proto.Marshal(resp)
 		if err != nil {
@@ -187,7 +188,7 @@ func (c *p2cServer) Shutdown() {
 	select {
 	case <-wchan:
 		fmt.Println("Writer shutdown cleanly..")
-	// All done!
+		// All done!
 	case <-time.After(10 * time.Second):
 		fmt.Println("Writer shutdown timed out, samples will be lost..")
 	}
