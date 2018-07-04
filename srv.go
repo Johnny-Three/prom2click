@@ -13,13 +13,16 @@ import (
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/storage/remote"
 	"gopkg.in/tylerb/graceful.v1"
+	tag "github.com/prom2click/label"
 )
 
 type p2cRequest struct {
-	name string
-	tags []string
-	val  float64
-	ts   time.Time
+	name      string
+	job       string
+	namespace string
+	tags      []string
+	val       float64
+	ts        time.Time
 }
 
 type p2cServer struct {
@@ -143,12 +146,23 @@ func (c *p2cServer) process(req remote.WriteRequest) {
 		c.rx.Add(float64(len(series.Samples)))
 		var (
 			name string
+			job  string
+			namespace string
 			tags []string
 		)
 
 		for _, label := range series.Labels {
 			if model.LabelName(label.Name) == model.MetricNameLabel {
 				name = label.Value
+			}
+
+			if model.LabelName(label.Name) == model.JobLabel {
+				job = label.Value
+			}
+
+
+			if model.LabelName(label.Name) == tag.Namespace {
+				namespace = label.Value
 			}
 			// store tags in <key>=<value> format
 			// allows for has(tags, "key=val") searches
@@ -160,6 +174,8 @@ func (c *p2cServer) process(req remote.WriteRequest) {
 		for _, sample := range series.Samples {
 			p2c := new(p2cRequest)
 			p2c.name = name
+			p2c.job = job
+			p2c.namespace = namespace
 			p2c.ts = time.Unix(sample.TimestampMs/1000, 0)
 			p2c.val = sample.Value
 			p2c.tags = tags

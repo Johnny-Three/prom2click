@@ -13,8 +13,8 @@ import (
 )
 
 var insertSQL = `INSERT INTO %s.%s
-	(date, name, tags, val, ts)
-	VALUES	(?, ?, ?, ?, ?)`
+	(date, name, job, namespace ,tags, val, ts)
+	VALUES	(?, ?, ?, ?, ?, ?,?)`
 
 type p2cWriter struct {
 	conf     *config
@@ -127,7 +127,7 @@ func (w *p2cWriter) Start() {
 				// ensure tags are inserted in the same order each time
 				// possibly/probably impacts indexing?
 				sort.Strings(req.tags)
-				_, err = smt.Exec(req.ts, req.name, clickhouse.Array(req.tags),
+				_, err = smt.Exec(req.ts, req.name, req.job, req.namespace, clickhouse.Array(req.tags),
 					req.val, req.ts)
 
 				if err != nil {

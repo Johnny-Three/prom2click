@@ -9,6 +9,7 @@ import (
 
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/storage/remote"
+	"github.com/prom2click/label"
 	"time"
 )
 
@@ -60,6 +61,7 @@ func (r *p2cReader) getSQL(query *remote.Query) (string, error) {
 
 	// match sql chunk
 	var mwhereSQL []string
+	var mwherejobSQL, mwherenameSQL, mwherenamespaceSQL string
 	// build an sql statement chunk for each matcher in the query
 	// yeah, this is a bit ugly..
 	for _, m := range query.Matchers {
@@ -67,18 +69,44 @@ func (r *p2cReader) getSQL(query *remote.Query) (string, error) {
 		// as it is stored in the name column (it's also in tags as __name__)
 		// note to self: add name to index.. otherwise this will be slow..
 		if m.Name == model.MetricNameLabel {
-			var whereAdd string
 			switch m.Type {
 			case remote.MatchType_EQUAL:
-				whereAdd = fmt.Sprintf(` name='%s' `, strings.Replace(m.Value, `'`, `\'`, -1))
+				mwherenameSQL = fmt.Sprintf(` name='%s' `, strings.Replace(m.Value, `'`, `\'`, -1))
 			case remote.MatchType_NOT_EQUAL:
-				whereAdd = fmt.Sprintf(` name!='%s' `, strings.Replace(m.Value, `'`, `\'`, -1))
+				mwherenameSQL = fmt.Sprintf(` name!='%s' `, strings.Replace(m.Value, `'`, `\'`, -1))
 			case remote.MatchType_REGEX_MATCH:
-				whereAdd = fmt.Sprintf(` match(name, %s) = 1 `, strings.Replace(m.Value, `/`, `\/`, -1))
+				mwherenameSQL = fmt.Sprintf(` match(name, %s) = 1 `, strings.Replace(m.Value, `/`, `\/`, -1))
 			case remote.MatchType_REGEX_NO_MATCH:
-				whereAdd = fmt.Sprintf(` match(name, %s) = 0 `, strings.Replace(m.Value, `/`, `\/`, -1))
+				mwherenameSQL = fmt.Sprintf(` match(name, %s) = 0 `, strings.Replace(m.Value, `/`, `\/`, -1))
 			}
-			mwhereSQL = append(mwhereSQL, whereAdd)
+			continue
+		}
+
+		if m.Name == label.Namespace {
+			switch m.Type {
+			case remote.MatchType_EQUAL:
+				mwherenamespaceSQL = fmt.Sprintf(` namespace='%s' `, strings.Replace(m.Value, `'`, `\'`, -1))
+			case remote.MatchType_NOT_EQUAL:
+				mwherenamespaceSQL = fmt.Sprintf(` namespace!='%s' `, strings.Replace(m.Value, `'`, `\'`, -1))
+			case remote.MatchType_REGEX_MATCH:
+				mwherenamespaceSQL = fmt.Sprintf(` match(namespace, %s) = 1 `, strings.Replace(m.Value, `/`, `\/`, -1))
+			case remote.MatchType_REGEX_NO_MATCH:
+				mwherenamespaceSQL = fmt.Sprintf(` match(namespace, %s) = 0 `, strings.Replace(m.Value, `/`, `\/`, -1))
+			}
+			continue
+		}
+
+		if m.Name == model.JobLabel {
+			switch m.Type {
+			case remote.MatchType_EQUAL:
+				mwherejobSQL = fmt.Sprintf(` job='%s' `, strings.Replace(m.Value, `'`, `\'`, -1))
+			case remote.MatchType_NOT_EQUAL:
+				mwherejobSQL = fmt.Sprintf(` job!='%s' `, strings.Replace(m.Value, `'`, `\'`, -1))
+			case remote.MatchType_REGEX_MATCH:
+				mwherejobSQL = fmt.Sprintf(` match(job, %s) = 1 `, strings.Replace(m.Value, `/`, `\/`, -1))
+			case remote.MatchType_REGEX_NO_MATCH:
+				mwherejobSQL = fmt.Sprintf(` match(job, %s) = 0 `, strings.Replace(m.Value, `/`, `\/`, -1))
+			}
 			continue
 		}
 
@@ -145,11 +173,14 @@ func (r *p2cReader) getSQL(query *remote.Query) (string, error) {
 			}
 		}
 	}
-
+	var sqljoin string
+	if len(mwhereSQL) > 0 {
+		sqljoin = strings.Join(mwhereSQL, " AND ")
+		fmt.Printf("sqljoin is %s\n", sqljoin)
+	}
 	// put select and where together with group by etc
-	tempSQL := "%s, name, tags, quantile(%f)(val) as value FROM %s.%s %s AND %s GROUP BY t, name, tags ORDER BY t"
-	sql := fmt.Sprintf(tempSQL, tselectSQL, r.conf.CHQuantile, r.conf.ChDB, r.conf.ChTable, twhereSQL,
-		strings.Join(mwhereSQL, " AND "))
+	tempSQL := "%s, name, job, namespace, tags, quantile(%f)(val) as value FROM %s.%s %s AND %s AND %s AND %s  GROUP BY t, name, job, namespace, tags ORDER BY t"
+	sql := fmt.Sprintf(tempSQL, tselectSQL, r.conf.CHQuantile, r.conf.ChDB, r.conf.ChTable, twhereSQL, mwherenamespaceSQL, mwherenameSQL, mwherejobSQL)
 	return sql, nil
 }
 
@@ -221,10 +252,12 @@ func (r *p2cReader) Read(req *remote.ReadRequest) (*remote.ReadResponse, error) 
 				cnt   int
 				t     int64
 				name  string
+				namespace string
+				job   string
 				tags  []string
 				value float64
 			)
-			if err = rows.Scan(&cnt, &t, &name, &tags, &value); err != nil {
+			if err = rows.Scan(&cnt, &t, &name, &job, &namespace,&tags, &value); err != nil {
 				fmt.Printf("Error: scan: %s\n", err.Error())
 			}
 			// remove this..
