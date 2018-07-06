@@ -3,18 +3,27 @@ package main
 import (
 	"database/sql"
 	"fmt"
-	"sort"
 	"time"
-
-	"sync"
-
 	"github.com/kshvakov/clickhouse"
+	"sync"
 	"github.com/prometheus/client_golang/prometheus"
 )
 
+/*
+ip String DEFAULT 'default',
+app String DEFAULT 'default',
+name String DEFAULT 'default',
+job String DEFAULT 'default',
+namespace String DEFAULT 'default',
+shard String DEFAULT 'default',
+keyspace String DEFAULT 'default',
+component String DEFAULT 'default',
+containername String DEFAULT 'default',
+*/
+
 var insertSQL = `INSERT INTO %s.%s
-	(date, name, job, namespace ,tags, val, ts)
-	VALUES	(?, ?, ?, ?, ?, ?,?)`
+	(ip,app,name,job,namespace,shard,keyspace,component,containername, val, ts,date,tags)
+	VALUES	(?, ?, ?, ?, ?, ?,?,?,?,?,?,?,?)`
 
 type p2cWriter struct {
 	conf     *config
@@ -123,12 +132,9 @@ func (w *p2cWriter) Start() {
 					w.ko.Add(1.0)
 					continue
 				}
-
-				// ensure tags are inserted in the same order each time
-				// possibly/probably impacts indexing?
-				sort.Strings(req.tags)
-				_, err = smt.Exec(req.ts, req.name, req.job, req.namespace, clickhouse.Array(req.tags),
-					req.val, req.ts)
+				//	(ip,app,name,job,namespace,shard,keyspace,component,containername, val, ts)
+				_, err = smt.Exec(req.ip, req.app, req.name, req.job, req.namespace, req.shard, req.keyspace, req.component, req.containername,
+					req.val, req.ts, req.ts, clickhouse.Array(req.tags))
 
 				if err != nil {
 					fmt.Printf("Error: statement exec: %s\n", err.Error())

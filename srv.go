@@ -16,13 +16,38 @@ import (
 	tag "github.com/prom2click/label"
 )
 
+/*
+ip String DEFAULT 'default',
+app String DEFAULT 'default',
+name String DEFAULT 'default',
+job String DEFAULT 'default',
+namespace String DEFAULT 'default',
+shard String DEFAULT 'default',
+keyspace String DEFAULT 'default',
+component String DEFAULT 'default',
+containername String DEFAULT 'default',
+val Float64,
+ts DateTime,
+date Date DEFAULT toDate(0),
+reserved1 String DEFAULT 'default',
+reserved2 String DEFAULT 'default',
+reserved3 String DEFAULT 'default',
+reserved4 String DEFAULT 'default',
+*/
+
 type p2cRequest struct {
-	name      string
-	job       string
-	namespace string
-	tags      []string
-	val       float64
-	ts        time.Time
+	ip            string
+	app           string
+	name          string
+	job           string
+	namespace     string
+	shard         string
+	keyspace      string
+	component     string
+	containername string
+	val           float64
+	ts            time.Time
+	tags          []string
 }
 
 type p2cServer struct {
@@ -32,6 +57,24 @@ type p2cServer struct {
 	writer   *p2cWriter
 	reader   *p2cReader
 	rx       prometheus.Counter
+}
+
+func Newp2cRequest() (*p2cRequest) {
+	p2cr := &p2cRequest{
+		ip:            "x",
+		app:           "x",
+		name:          "x",
+		job:           "x",
+		namespace:     "x",
+		shard:         "x",
+		keyspace:      "x",
+		component:     "x",
+		containername: "x",
+		val:           0.0,
+		ts:            time.Now(),
+		tags:          []string{},
+	}
+	return p2cr
 }
 
 func NewP2CServer(conf *config) (*p2cServer, error) {
@@ -116,7 +159,6 @@ func NewP2CServer(conf *config) (*p2cServer, error) {
 			return
 		}
 		end := time.Now().Sub(start)
-		fmt.Printf("the query exaushted %v\n", end)
 
 		data, err := proto.Marshal(resp)
 		if err != nil {
@@ -132,6 +174,8 @@ func NewP2CServer(conf *config) (*p2cServer, error) {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
+		fmt.Printf("the query exaushted %v\n", end)
+
 	})
 
 	c.mux.Handle(c.conf.HTTPMetricsPath, prometheus.InstrumentHandler(
@@ -144,41 +188,42 @@ func NewP2CServer(conf *config) (*p2cServer, error) {
 func (c *p2cServer) process(req remote.WriteRequest) {
 	for _, series := range req.Timeseries {
 		c.rx.Add(float64(len(series.Samples)))
-		var (
-			name string
-			job  string
-			namespace string
-			tags []string
-		)
-
+		p2c := Newp2cRequest()
 		for _, label := range series.Labels {
 			if model.LabelName(label.Name) == model.MetricNameLabel {
-				name = label.Value
+				p2c.name = label.Value
 			}
-
 			if model.LabelName(label.Name) == model.JobLabel {
-				job = label.Value
+				p2c.job = label.Value
 			}
-
-
 			if model.LabelName(label.Name) == tag.Namespace {
-				namespace = label.Value
+				p2c.namespace = label.Value
 			}
-			// store tags in <key>=<value> format
-			// allows for has(tags, "key=val") searches
-			// probably impossible/difficult to do regex searches on tags
-			t := fmt.Sprintf("%s=%s", label.Name, label.Value)
-			tags = append(tags, t)
-		}
+			if model.LabelName(label.Name) == tag.Ip {
+				p2c.ip = label.Value
+			}
+			if model.LabelName(label.Name) == tag.App {
+				p2c.app = label.Value
+			}
+			if model.LabelName(label.Name) == tag.Shard {
+				p2c.shard = label.Value
+			}
+			if model.LabelName(label.Name) == tag.Keyspace {
+				p2c.keyspace = label.Value
+			}
+			if model.LabelName(label.Name) == tag.Component {
+				p2c.component = label.Value
+			}
+			if model.LabelName(label.Name) == tag.Container {
+				p2c.containername = label.Value
+			}
 
+			t := fmt.Sprintf("%s=%s", label.Name, label.Value)
+			p2c.tags = append(p2c.tags, t)
+		}
 		for _, sample := range series.Samples {
-			p2c := new(p2cRequest)
-			p2c.name = name
-			p2c.job = job
-			p2c.namespace = namespace
 			p2c.ts = time.Unix(sample.TimestampMs/1000, 0)
 			p2c.val = sample.Value
-			p2c.tags = tags
 			c.requests <- p2c
 		}
 

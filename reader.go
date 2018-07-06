@@ -1,16 +1,16 @@
 package main
 
 import (
-	"bytes"
 	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
-
+	tag "github.com/prom2click/label"
 	"github.com/prometheus/common/model"
 	"github.com/prometheus/prometheus/storage/remote"
-	"github.com/prom2click/label"
 	"time"
+	"reflect"
+	"bytes"
 )
 
 type p2cReader struct {
@@ -52,135 +52,57 @@ func (r *p2cReader) getTimePeriod(query *remote.Query) (string, string, error) {
 	return selectSQL, whereSQL, nil
 }
 
+//make the sql body ..
+func (r *p2cReader) getSQLOut(matchers []*remote.LabelMatcher) (sqlhead, sqlbody string) {
+
+	// join 为函数地址
+	f := func(m *remote.LabelMatcher, name string) (sqlr string) {
+
+		//tag.Namespace
+		switch m.Type {
+		case remote.MatchType_EQUAL:
+			sqlr = fmt.Sprintf(` %s='%s' `, name, strings.Replace(m.Value, `'`, `\'`, -1))
+		case remote.MatchType_NOT_EQUAL:
+			sqlr = fmt.Sprintf(` %s!='%s' `, name, strings.Replace(m.Value, `'`, `\'`, -1))
+		case remote.MatchType_REGEX_MATCH:
+			sqlr = fmt.Sprintf(` match(%s, %s) = 1 `, name, strings.Replace(m.Value, `/`, `\/`, -1))
+		case remote.MatchType_REGEX_NO_MATCH:
+			sqlr = fmt.Sprintf(` match(%s, %s) = 0 `, name, strings.Replace(m.Value, `/`, `\/`, -1))
+		}
+		return
+	}
+
+	mslicebody := []string{}
+	mslicehead := []string{}
+	for _, m := range matchers {
+
+		switch(m.Name) {
+		case tag.Namespace, tag.Keyspace, tag.Ip, tag.Shard, tag.App, tag.Component, tag.Container, tag.Job , model.MetricNameLabel:
+			{
+				if m.Name == model.MetricNameLabel{
+					m.Name = "name"
+				}
+				mslicebody = append(mslicebody, f(m, m.Name))
+				mslicehead = append(mslicehead, m.Name)
+			}
+		default:
+			continue
+		}
+	}
+
+	return strings.Join(mslicehead, ","), strings.Join(mslicebody, "and")
+}
+
 func (r *p2cReader) getSQL(query *remote.Query) (string, error) {
 	// time related select sql, where sql chunks
 	tselectSQL, twhereSQL, err := r.getTimePeriod(query)
 	if err != nil {
 		return "", err
 	}
-
-	// match sql chunk
-	var mwhereSQL []string
-	var mwherejobSQL, mwherenameSQL, mwherenamespaceSQL string
-	// build an sql statement chunk for each matcher in the query
-	// yeah, this is a bit ugly..
-	for _, m := range query.Matchers {
-		// __name__ is handled specially - match it directly
-		// as it is stored in the name column (it's also in tags as __name__)
-		// note to self: add name to index.. otherwise this will be slow..
-		if m.Name == model.MetricNameLabel {
-			switch m.Type {
-			case remote.MatchType_EQUAL:
-				mwherenameSQL = fmt.Sprintf(` name='%s' `, strings.Replace(m.Value, `'`, `\'`, -1))
-			case remote.MatchType_NOT_EQUAL:
-				mwherenameSQL = fmt.Sprintf(` name!='%s' `, strings.Replace(m.Value, `'`, `\'`, -1))
-			case remote.MatchType_REGEX_MATCH:
-				mwherenameSQL = fmt.Sprintf(` match(name, %s) = 1 `, strings.Replace(m.Value, `/`, `\/`, -1))
-			case remote.MatchType_REGEX_NO_MATCH:
-				mwherenameSQL = fmt.Sprintf(` match(name, %s) = 0 `, strings.Replace(m.Value, `/`, `\/`, -1))
-			}
-			continue
-		}
-
-		if m.Name == label.Namespace {
-			switch m.Type {
-			case remote.MatchType_EQUAL:
-				mwherenamespaceSQL = fmt.Sprintf(` namespace='%s' `, strings.Replace(m.Value, `'`, `\'`, -1))
-			case remote.MatchType_NOT_EQUAL:
-				mwherenamespaceSQL = fmt.Sprintf(` namespace!='%s' `, strings.Replace(m.Value, `'`, `\'`, -1))
-			case remote.MatchType_REGEX_MATCH:
-				mwherenamespaceSQL = fmt.Sprintf(` match(namespace, %s) = 1 `, strings.Replace(m.Value, `/`, `\/`, -1))
-			case remote.MatchType_REGEX_NO_MATCH:
-				mwherenamespaceSQL = fmt.Sprintf(` match(namespace, %s) = 0 `, strings.Replace(m.Value, `/`, `\/`, -1))
-			}
-			continue
-		}
-
-		if m.Name == model.JobLabel {
-			switch m.Type {
-			case remote.MatchType_EQUAL:
-				mwherejobSQL = fmt.Sprintf(` job='%s' `, strings.Replace(m.Value, `'`, `\'`, -1))
-			case remote.MatchType_NOT_EQUAL:
-				mwherejobSQL = fmt.Sprintf(` job!='%s' `, strings.Replace(m.Value, `'`, `\'`, -1))
-			case remote.MatchType_REGEX_MATCH:
-				mwherejobSQL = fmt.Sprintf(` match(job, %s) = 1 `, strings.Replace(m.Value, `/`, `\/`, -1))
-			case remote.MatchType_REGEX_NO_MATCH:
-				mwherejobSQL = fmt.Sprintf(` match(job, %s) = 0 `, strings.Replace(m.Value, `/`, `\/`, -1))
-			}
-			continue
-		}
-
-		switch m.Type {
-		case remote.MatchType_EQUAL:
-			var insql bytes.Buffer
-			asql := "arrayExists(x -> x IN (%s), tags) = 1"
-			// value appears to be | sep'd for multiple matches
-			for i, val := range strings.Split(m.Value, "|") {
-				if len(val) < 1 {
-					continue
-				}
-				if i == 0 {
-					istr := fmt.Sprintf(`'%s=%s' `, m.Name, strings.Replace(val, `'`, `\'`, -1))
-					insql.WriteString(istr)
-				} else {
-					istr := fmt.Sprintf(`,'%s=%s' `, m.Name, strings.Replace(val, `'`, `\'`, -1))
-					insql.WriteString(istr)
-				}
-			}
-			wstr := fmt.Sprintf(asql, insql.String())
-			mwhereSQL = append(mwhereSQL, wstr)
-
-		case remote.MatchType_NOT_EQUAL:
-			var insql bytes.Buffer
-			asql := "arrayExists(x -> x IN (%s), tags) = 0"
-			// value appears to be | sep'd for multiple matches
-			for i, val := range strings.Split(m.Value, "|") {
-				if len(val) < 1 {
-					continue
-				}
-				if i == 0 {
-					istr := fmt.Sprintf(`'%s=%s' `, m.Name, strings.Replace(val, `'`, `\'`, -1))
-					insql.WriteString(istr)
-				} else {
-					istr := fmt.Sprintf(`,'%s=%s' `, m.Name, strings.Replace(val, `'`, `\'`, -1))
-					insql.WriteString(istr)
-				}
-			}
-			wstr := fmt.Sprintf(asql, insql.String())
-			mwhereSQL = append(mwhereSQL, wstr)
-
-		case remote.MatchType_REGEX_MATCH:
-			asql := `arrayExists(x -> 1 == match(x, '^%s=%s'),tags) = 1`
-			// we can't have ^ in the regexp since keys are stored in arrays of key=value
-			if strings.HasPrefix(m.Value, "^") {
-				val := strings.Replace(m.Value, "^", "", 1)
-				val = strings.Replace(val, `/`, `\/`, -1)
-				mwhereSQL = append(mwhereSQL, fmt.Sprintf(asql, m.Name, val))
-			} else {
-				val := strings.Replace(m.Value, `/`, `\/`, -1)
-				mwhereSQL = append(mwhereSQL, fmt.Sprintf(asql, m.Name, val))
-			}
-
-		case remote.MatchType_REGEX_NO_MATCH:
-			asql := `arrayExists(x -> 1 == match(x, '^%s=%s'),tags) = 0`
-			if strings.HasPrefix(m.Value, "^") {
-				val := strings.Replace(m.Value, "^", "", 1)
-				val = strings.Replace(val, `/`, `\/`, -1)
-				mwhereSQL = append(mwhereSQL, fmt.Sprintf(asql, m.Name, val))
-			} else {
-				val := strings.Replace(m.Value, `/`, `\/`, -1)
-				mwhereSQL = append(mwhereSQL, fmt.Sprintf(asql, m.Name, val))
-			}
-		}
-	}
-	var sqljoin string
-	if len(mwhereSQL) > 0 {
-		sqljoin = strings.Join(mwhereSQL, " AND ")
-		fmt.Printf("sqljoin is %s\n", sqljoin)
-	}
+	head, body := r.getSQLOut(query.Matchers)
 	// put select and where together with group by etc
-	tempSQL := "%s, name, job, namespace, tags, quantile(%f)(val) as value FROM %s.%s %s AND %s AND %s AND %s  GROUP BY t, name, job, namespace, tags ORDER BY t"
-	sql := fmt.Sprintf(tempSQL, tselectSQL, r.conf.CHQuantile, r.conf.ChDB, r.conf.ChTable, twhereSQL, mwherenamespaceSQL, mwherenameSQL, mwherejobSQL)
+	tempSQL := "%s,%s, quantile(%f)(val) as value FROM %s.%s %s and %s GROUP BY t,%s ORDER BY t asc"
+	sql := fmt.Sprintf(tempSQL, tselectSQL, head, r.conf.CHQuantile, r.conf.ChDB, r.conf.ChTable, twhereSQL, body, head)
 	return sql, nil
 }
 
@@ -222,7 +144,7 @@ func (r *p2cReader) Read(req *remote.ReadRequest) (*remote.ReadResponse, error) 
 		tm2 := time.Unix(q.EndTimestampMs/1000, 0)
 		// remove me..
 		fmt.Printf("\nquery: start: %s, end: %s\n\n", tm1.Format("2006-01-02 03:04:05 PM"), tm2.Format("2006-01-02 03:04:05 PM"))
-		fmt.Printf("\nsql comes from prometheus %s\n", q.String());
+		fmt.Printf("\nsql comes from prometheus %s\n", q.String())
 		// get the select sql
 		sqlStr, err = r.getSQL(q)
 		fmt.Printf("query: running sql: %s\n\n", sqlStr)
@@ -239,6 +161,7 @@ func (r *p2cReader) Read(req *remote.ReadRequest) (*remote.ReadResponse, error) 
 
 		// todo: metrics on number of errors, rows, selects, timings, etc
 		rows, err = r.db.Query(sqlStr)
+		cols, _ := rows.Columns()
 		if err != nil {
 			fmt.Printf("Error: query failed: %s", sqlStr)
 			fmt.Printf("Error: query error: %s\n", err)
@@ -248,74 +171,86 @@ func (r *p2cReader) Read(req *remote.ReadRequest) (*remote.ReadResponse, error) 
 		// build map of timeseries from sql result
 		for rows.Next() {
 			rcount++
-			var (
-				cnt   int
-				t     int64
-				name  string
-				namespace string
-				job   string
-				tags  []string
-				value float64
-			)
-			if err = rows.Scan(&cnt, &t, &name, &job, &namespace,&tags, &value); err != nil {
+			// Create a slice of interface{}'s to represent each column,
+			// and a second slice to contain pointers to each item in the columns slice.
+			columns := make([]interface{}, len(cols))
+			columnPointers := make([]interface{}, len(cols))
+			for i, _ := range columns {
+				columnPointers[i] = &columns[i]
+			}
+			if err = rows.Scan(columnPointers...); err != nil {
 				fmt.Printf("Error: scan: %s\n", err.Error())
 			}
-			// remove this..
-			//fmt.Printf(fmt.Sprintf("%d,%d,%s,%s,%f\n", cnt, t, name, strings.Join(tags, ":"), value))
 
+			// Create our map, and retrieve the value for each column from the pointers slice,
+			// storing it in the map with the name of the column as the key.
+			m := make(map[string]interface{})
+			for i, colName := range cols {
+				val := columnPointers[i].(*interface{})
+				m[colName] = *val
+			}
+
+			// Outputs: map[columnName:value columnName2:value2 columnName3:value3 ...]
+			//fmt.Print(m)
+			key, value, t, labels := makeLabels(m)
 			// borrowed from influx remote storage adapter - array sep
-			key := strings.Join(tags, "\xff")
+			//key := strings.Join(tags, "\xff")
 			ts, ok := tsres[key]
 			if !ok {
 				ts = &remote.TimeSeries{
-					Labels: makeLabels(tags),
+					Labels: labels,
 				}
 				tsres[key] = ts
 			}
 			ts.Samples = append(ts.Samples, &remote.Sample{
 				Value:       float64(value),
-				TimestampMs: t,
+				TimestampMs: int64(t),
 			})
 		}
 	}
 
-	// now add results to response
-	for _, ts := range tsres {
-		resp.Results[0].Timeseries = append(resp.Results[0].Timeseries, ts)
-	}
-
-	// label ..
-	label := ""
-	for _, m := range req.Queries[0].Matchers {
-		// __name__ is handled specially - match it directly
-		// as it is stored in the name column (it's also in tags as __name__)
-		// note to self: add name to index.. otherwise this will be slow..
-		if m.Name == model.MetricNameLabel {
-			label = m.Value
-		}
-	}
-	fmt.Printf("query:[getting parameter:%s ]: returning %d rows for %d queries\n", label, rcount, len(req.Queries))
+	fmt.Printf("query:: returning %d rows for %d queries\n", rcount, len(req.Queries))
 	return &resp, nil
 
 }
 
-func makeLabels(tags []string) []*remote.LabelPair {
-	lpairs := make([]*remote.LabelPair, 0, len(tags))
+//TODO://根据新的map值反射出名字和值...
+func makeLabels(tags map[string]interface{}) (key string, val float64, ts uint64, lpairs []*remote.LabelPair) {
+	lpairs = make([]*remote.LabelPair, 0, len(tags))
 	// (currently) writer includes __name__ in tags so no need to add it here
 	// may change this to save space later..
-	for _, tag := range tags {
-		vals := strings.SplitN(tag, "=", 2)
-		if len(vals) != 2 {
-			fmt.Printf("Error unpacking tag key/val: %s\n", tag)
+	var keyarray []string
+	var str bytes.Buffer
+	for colname, tag := range tags {
+
+		//获取interface的类型
+		//t := reflect.TypeOf(tag)
+		if colname == "value" {
+			val = reflect.ValueOf(tag).Interface().(float64)
 			continue
 		}
-		if vals[1] == "" {
+
+		if colname == "t" {
+			ts = reflect.ValueOf(tag).Interface().(uint64)
 			continue
 		}
+
+		if colname == "CNT" {
+			continue
+		}
+
+		cv := reflect.ValueOf(tag).Interface().(string)
+		if cv == "" {
+			continue
+		}
+
 		lpairs = append(lpairs, &remote.LabelPair{
-			Name:  vals[0],
-			Value: vals[1],
+			Name:  colname,
+			Value: cv,
 		})
+		str.WriteString(colname)
+		str.WriteString(cv)
+		keyarray = append(keyarray, str.String())
 	}
-	return lpairs
+	return strings.Join(keyarray, "\xff"), val, ts, lpairs
 }

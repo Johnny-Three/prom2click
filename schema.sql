@@ -1,26 +1,63 @@
-# note: replace {shard} and {replica} and run on each server
-DROP TABLE IF EXISTS metrics.samples;
-CREATE TABLE IF NOT EXISTS metrics.samples
- (
- 	date Date DEFAULT toDate(0),
- 	name String,
- 	tags Array(String),
- 	val Float64,
- 	ts DateTime,
-	updated DateTime DEFAULT now()
-)
-ENGINE = ReplicatedGraphiteMergeTree(
-	'/clickhouse/tables/{shard}/metrics.samples',
-	'{replica}', date, (name, tags, ts), 8192, 'graphite_rollup'
-);
+# note:REPLACE {shard} AND {REPLICA} AND run ON EACH SERVER
 
-DROP TABLE IF EXISTS metrics.dist;
-CREATE TABLE IF NOT EXISTS metrics.dist
- (
- 	date Date DEFAULT toDate(0),
- 	name String,
- 	tags Array(String),
- 	val Float64,
- 	ts DateTime,
-	updated DateTime DEFAULT now()
- ) ENGINE = Distributed(metrics, metrics, samples, sipHash64(name));
+
+// LOCAL test TABLE ON ubuntu ..
+CREATE TABLE metrics.samples (
+  ip            STRING   DEFAULT 'default',
+  app           STRING   DEFAULT 'x',
+  name          STRING   DEFAULT 'x',
+  job           STRING   DEFAULT 'x',
+  namespace     STRING   DEFAULT 'x',
+  shard         STRING   DEFAULT 'x',
+  keyspace      STRING   DEFAULT 'x',
+  component     STRING   DEFAULT 'x',
+  containername STRING   DEFAULT 'x',
+  val           FLOAT64,
+  ts            DATETIME,
+  date          DATE     DEFAULT toDate(0),
+  tags ARRAY (String),
+  updated       DATETIME DEFAULT now()
+)
+  ENGINE = MergeTree PARTITION BY toMonday (date
+) ORDER BY (date, NAME, ts
+) SETTINGS index_granularity = 8192
+
+
+// LOCAL TABLE ON Centos ..
+CREATE TABLE metrics.samples (
+  ip            STRING   DEFAULT 'default',
+  app           STRING   DEFAULT 'x',
+  name          STRING   DEFAULT 'x',
+  job           STRING   DEFAULT 'x',
+  namespace     STRING   DEFAULT 'x',
+  shard         STRING   DEFAULT 'x',
+  keyspace      STRING   DEFAULT 'x',
+  component     STRING   DEFAULT 'x',
+  containername STRING   DEFAULT 'x',
+  val           FLOAT64,
+  ts            DATETIME,
+  date          DATE     DEFAULT toDate(0),
+  tags ARRAY (String),
+  updated       DATETIME DEFAULT now()
+)ENGINE = MergeTree PARTITION BY toMonday (date) ORDER BY (date, NAME, ts) SETTINGS index_granularity = 8192;
+
+
+
+CREATE TABLE metrics.samples (
+  ip            STRING   DEFAULT 'default',
+  app           STRING   DEFAULT 'x',
+  name          STRING   DEFAULT 'x',
+  job           STRING   DEFAULT 'x',
+  namespace     STRING   DEFAULT 'x',
+  shard         STRING   DEFAULT 'x',
+  keyspace      STRING   DEFAULT 'x',
+  component     STRING   DEFAULT 'x',
+  containername STRING   DEFAULT 'x',
+  val           FLOAT64,
+  ts            DATETIME,
+  date          DATE     DEFAULT toDate(0),
+  tags ARRAY (String),
+  updated       DATETIME DEFAULT now()
+)ENGINE = ReplicatedGraphiteMergeTree ('/clickhouse/tables/{shard}/metrics.samples','{replica}', partition by toMonday(date) order by  (date, name, ts) settings index_granularity=8192);
+
+
