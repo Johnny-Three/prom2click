@@ -66,7 +66,7 @@ DROP DATABASE IF EXISTS metrics  ON CLUSTER ads_app_clickhouse_cluster;
 
 create database metrics on cluster ads_app_clickhouse_cluster;
  
-CREATE TABLE IF NOT EXISTS metrics.samples ON CLUSTER ads_app_clickhouse_cluster(
+CREATE TABLE IF NOT EXISTS metrics.samples (
   ip            String   DEFAULT 'x',
   app           String   DEFAULT 'x',
   name          String   DEFAULT 'x',
@@ -81,4 +81,22 @@ CREATE TABLE IF NOT EXISTS metrics.samples ON CLUSTER ads_app_clickhouse_cluster
   date          Date     DEFAULT toDate(0),
   tags          Array(String),
   updated       DateTime DEFAULT now()
-)ENGINE = ReplicatedGraphiteMergeTree('/clickhouse/tables/{shard}/metrics.samples','{replica}') PARTITION BY toMonday(date) ORDER BY (date, name, ts) SETTINGS index_granularity = 8192;
+)ENGINE = ReplicatedMergeTree('/clickhouse/tables/{shard}/metrics.samples','{replica}') PARTITION BY toMonday(date) ORDER BY (date, name, ts) SETTINGS index_granularity = 8192;
+
+
+CREATE TABLE IF NOT EXISTS metrics.distribute ON CLUSTER ads_app_clickhouse_cluster(
+  ip            String   DEFAULT 'x',
+  app           String   DEFAULT 'x',
+  name          String   DEFAULT 'x',
+  job           String   DEFAULT 'x',
+  namespace     String   DEFAULT 'x',
+  shard         String   DEFAULT 'x',
+  keyspace      String   DEFAULT 'x',
+  component     String   DEFAULT 'x',
+  containername String   DEFAULT 'x',
+  val           Float64,
+  ts            DateTime,
+  date          Date     DEFAULT toDate(0),
+  tags          Array(String),
+  updated       DateTime DEFAULT now()
+)ENGINE = Distributed(ads_app_clickhouse_cluster, metrics, samples,rand())
