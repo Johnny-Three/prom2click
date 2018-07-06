@@ -77,10 +77,13 @@ func (r *p2cReader) getSQLOut(matchers []*remote.LabelMatcher) (sqlhead, sqlbody
 	for _, m := range matchers {
 
 		switch(m.Name) {
-		case tag.Namespace, tag.Keyspace, tag.Ip, tag.Shard, tag.App, tag.Component, tag.Container, tag.Job , model.MetricNameLabel:
+		case tag.Namespace, tag.Keyspace, tag.Ip, tag.Shard, tag.App, tag.Component, tag.Container, tag.Job, model.MetricNameLabel:
 			{
-				if m.Name == model.MetricNameLabel{
+				if m.Name == model.MetricNameLabel {
 					m.Name = "name"
+				}
+				if m.Name == tag.Container {
+					m.Name = "containername"
 				}
 				mslicebody = append(mslicebody, f(m, m.Name))
 				mslicehead = append(mslicehead, m.Name)
