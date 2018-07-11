@@ -192,17 +192,11 @@ func (r *p2cReader) Read(req *remote.ReadRequest) (*remote.ReadResponse, error) 
 			return &resp, err
 		}
 
-		// get the select sql
-		if err != nil {
-			fmt.Printf("Error: reader: getSQL: %s\n", err.Error())
-			return &resp, err
-		}
-
 		// todo: metrics on number of errors, rows, selects, timings, etc
 		rows, err = r.db.Query(sqlStr)
 		if err != nil {
 			fmt.Printf("Error: query failed: %s", sqlStr)
-			fmt.Printf("Error: query error: %s\n", err)
+			fmt.Printf("Error: query error: %s\n", err.Error())
 			return &resp, err
 		}
 
