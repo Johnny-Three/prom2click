@@ -37,6 +37,14 @@ func NewP2CWriter(conf *config, reqs chan *p2cRequest) (*p2cWriter, error) {
 		fmt.Printf("Error connecting to clickhouse: %s\n", err.Error())
 		return w, err
 	}
+	if err := w.db.Ping(); err != nil {
+		if exception, ok := err.(*clickhouse.Exception); ok {
+			fmt.Printf("[%d] %s \n%s\n", exception.Code, exception.Message, exception.StackTrace)
+		} else {
+			fmt.Print(err)
+		}
+		return nil, err
+	}
 
 	w.tx = prometheus.NewCounter(
 		prometheus.CounterOpts{
