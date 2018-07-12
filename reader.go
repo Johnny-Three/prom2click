@@ -170,7 +170,6 @@ func (r *p2cReader) Read(req *remote.ReadRequest) (*remote.ReadResponse, error) 
 			fmt.Printf("Error: query error: %s\n", err)
 			return &resp, err
 		}
-        defer rows.Close()
 		// build map of timeseries from sql result
 		for rows.Next() {
 			rcount++
@@ -211,7 +210,7 @@ func (r *p2cReader) Read(req *remote.ReadRequest) (*remote.ReadResponse, error) 
 			})
 		}
 	}
-
+	rows.Close()
 	fmt.Printf("query:: returning %d rows for %d queries\n", rcount, len(req.Queries))
 	return &resp, nil
 

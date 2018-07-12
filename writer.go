@@ -129,7 +129,6 @@ func (w *p2cWriter) Start() {
 			if err != nil {
 				fmt.Printf("Error: prepare statement: %s\n", err.Error())
 			}
-			defer smt.Close() // danger!
 			for _, req := range reqs {
 				if err != nil {
 					fmt.Printf("Error: prepare statement: %s\n", err.Error())
@@ -154,7 +153,7 @@ func (w *p2cWriter) Start() {
 				w.tx.Add(float64(nmetrics))
 				w.timings.Observe(float64(time.Since(tstart)))
 			}
-
+			smt.Close() // danger!
 		}
 		fmt.Println("Writer stopped..")
 		w.wg.Done()
