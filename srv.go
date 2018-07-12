@@ -14,96 +14,46 @@ import (
 	"github.com/prometheus/prometheus/storage/remote"
 	"gopkg.in/tylerb/graceful.v1"
 	tag "github.com/prom2click/label"
+	pro "github.com/prom2click/protocal"
 	"github.com/prom2click/job"
 )
 
-/*
-ip String DEFAULT 'default',
-app String DEFAULT 'default',
-name String DEFAULT 'default',
-job String DEFAULT 'default',
-namespace String DEFAULT 'default',
-shard String DEFAULT 'default',
-keyspace String DEFAULT 'default',
-component String DEFAULT 'default',
-containername String DEFAULT 'default',
-val Float64,
-ts DateTime,
-date Date DEFAULT toDate(0),
-reserved1 String DEFAULT 'default',
-reserved2 String DEFAULT 'default',
-reserved3 String DEFAULT 'default',
-reserved4 String DEFAULT 'default',
-*/
-
-type p2cRequest struct {
-	ip            string
-	app           string
-	name          string
-	job           string
-	namespace     string
-	shard         string
-	keyspace      string
-	component     string
-	containername string
-	val           float64
-	ts            time.Time
-	tags          []string
-}
-
 type p2cServer struct {
-	requests chan *p2cRequest
+	requests chan *pro.K8sRequest
 	mux      *http.ServeMux
 	conf     *config
-	writer   *p2cWriter
+	writers  []*p2cWriter
 	reader   *p2cReader
-	jm		 *job.JobManager
+	jm       *job.JobManager
 	rx       prometheus.Counter
-}
-
-/*
-	jm, err := job.NewJobManager()
-	if err != nil {
-		return nil, err
-	}
-*/
-
-func Newp2cRequest() (*p2cRequest) {
-	p2cr := &p2cRequest{
-		ip:            "x",
-		app:           "x",
-		name:          "x",
-		job:           "x",
-		namespace:     "x",
-		shard:         "x",
-		keyspace:      "x",
-		component:     "x",
-		containername: "x",
-		val:           0.0,
-		ts:            time.Now(),
-		tags:          []string{},
-	}
-	return p2cr
 }
 
 func NewP2CServer(conf *config) (*p2cServer, error) {
 	var err error
 	c := new(p2cServer)
-	c.requests = make(chan *p2cRequest, conf.ChanSize)
+	c.requests = make(chan *pro.K8sRequest, conf.ChanSize)
 	c.mux = http.NewServeMux()
 	c.conf = conf
 
-    //Initial JobManager ..
-	jm, err := job.NewJobManager()
+	//Initial JobManager ..
+	jm, err := job.NewJobManager(c.conf.ChBatch)
 	if err != nil {
 		return nil, err
 	}
 	c.jm = jm
-
-	c.writer, err = NewP2CWriter(conf, c.requests)
-	if err != nil {
-		fmt.Printf("Error creating clickhouse writer: %s\n", err.Error())
-		return c, err
+	//根据不同的job生成不同的writer，每个writer都有自己监控的channel，channel中的值由server分发
+	for jobname, channel := range c.jm.GetJobs() {
+		table := c.jm.GetTableAccordingJobName(jobname)
+		if table == "" {
+			fmt.Println("Error find table according jobname in configfile")
+			continue
+		}
+		writer, err := NewP2CWriter(conf, jobname, table, channel)
+		if err != nil {
+			fmt.Printf("Error creating clickhouse writer: %s\n", err.Error())
+		}
+		writer.Start()
+		c.writers = append(c.writers, writer)
 	}
 
 	c.reader, err = NewP2CReader(conf)
@@ -204,69 +154,50 @@ func NewP2CServer(conf *config) (*p2cServer, error) {
 func (c *p2cServer) process(req remote.WriteRequest) {
 	for _, series := range req.Timeseries {
 		c.rx.Add(float64(len(series.Samples)))
-		p2c := Newp2cRequest()
+		p2c := pro.NewK8sRequest()
 		for _, label := range series.Labels {
 			if model.LabelName(label.Name) == model.MetricNameLabel {
-				p2c.name = label.Value
+				p2c.Name = label.Value
 			}
 			if model.LabelName(label.Name) == model.JobLabel {
-				p2c.job = label.Value
+				p2c.Job = label.Value
 			}
 			if model.LabelName(label.Name) == tag.Namespace {
-				p2c.namespace = label.Value
+				p2c.Namespace = label.Value
 			}
 			if model.LabelName(label.Name) == tag.Ip {
-				p2c.ip = label.Value
+				p2c.Ip = label.Value
 			}
 			if model.LabelName(label.Name) == tag.App {
-				p2c.app = label.Value
+				p2c.App = label.Value
 			}
 			if model.LabelName(label.Name) == tag.Shard {
-				p2c.shard = label.Value
+				p2c.Shard = label.Value
 			}
 			if model.LabelName(label.Name) == tag.Keyspace {
-				p2c.keyspace = label.Value
+				p2c.Keyspace = label.Value
 			}
 			if model.LabelName(label.Name) == tag.Component {
-				p2c.component = label.Value
+				p2c.Component = label.Value
 			}
 			if model.LabelName(label.Name) == tag.Container {
-				p2c.containername = label.Value
+				p2c.Containername = label.Value
 			}
 
 			t := fmt.Sprintf("%s=%s", label.Name, label.Value)
-			p2c.tags = append(p2c.tags, t)
+			p2c.Tags = append(p2c.Tags, t)
 		}
 		for _, sample := range series.Samples {
-			p2c.ts = time.Unix(sample.TimestampMs/1000, 0)
-			p2c.val = sample.Value
-			c.requests <- p2c
+			p2c.Ts = time.Unix(sample.TimestampMs/1000, 0)
+			p2c.Val = sample.Value
+			if channel, err := c.jm.GetChannelAccordingJobname(p2c.Job); err == nil {
+				channel <- p2c
+			}
 		}
 	}
 }
 
 func (c *p2cServer) Start() error {
 	fmt.Println("HTTP server starting...")
-	c.writer.Start()
 	return graceful.RunWithErr(c.conf.HTTPAddr, c.conf.HTTPTimeout, c.mux)
-}
-
-func (c *p2cServer) Shutdown() {
-	close(c.requests)
-	c.writer.Wait()
-
-	wchan := make(chan struct{})
-	go func() {
-		c.writer.Wait()
-		close(wchan)
-	}()
-
-	select {
-	case <-wchan:
-		fmt.Println("Writer shutdown cleanly..")
-		// All done!
-	case <-time.After(10 * time.Second):
-		fmt.Println("Writer shutdown timed out, samples will be lost..")
-	}
-
 }

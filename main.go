@@ -59,7 +59,6 @@ func main() {
 	}
 
 	fmt.Println("Shutting down..")
-	srv.Shutdown()
 	fmt.Println("Exiting..")
 	os.Exit(excode)
 }
