@@ -14,6 +14,7 @@ import (
 	"github.com/prometheus/prometheus/storage/remote"
 	"gopkg.in/tylerb/graceful.v1"
 	tag "github.com/prom2click/label"
+	"github.com/prom2click/job"
 )
 
 /*
@@ -56,8 +57,16 @@ type p2cServer struct {
 	conf     *config
 	writer   *p2cWriter
 	reader   *p2cReader
+	jm		 *job.JobManager
 	rx       prometheus.Counter
 }
+
+/*
+	jm, err := job.NewJobManager()
+	if err != nil {
+		return nil, err
+	}
+*/
 
 func Newp2cRequest() (*p2cRequest) {
 	p2cr := &p2cRequest{
@@ -83,6 +92,13 @@ func NewP2CServer(conf *config) (*p2cServer, error) {
 	c.requests = make(chan *p2cRequest, conf.ChanSize)
 	c.mux = http.NewServeMux()
 	c.conf = conf
+
+    //Initial JobManager ..
+	jm, err := job.NewJobManager()
+	if err != nil {
+		return nil, err
+	}
+	c.jm = jm
 
 	c.writer, err = NewP2CWriter(conf, c.requests)
 	if err != nil {
