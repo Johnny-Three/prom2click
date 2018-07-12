@@ -30,9 +30,20 @@ var (
 	versionFlag bool
 )
 
+type Job struct {
+	Name  string
+	Table string
+}
+
+type Config struct {
+	Jobs []Job
+}
+
 func main() {
+
 	excode := 0
 	conf := parseFlags()
+
 
 	if versionFlag {
 		fmt.Println("Git Commit:", GitCommit)

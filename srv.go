@@ -226,7 +226,6 @@ func (c *p2cServer) process(req remote.WriteRequest) {
 			p2c.val = sample.Value
 			c.requests <- p2c
 		}
-
 	}
 }
 

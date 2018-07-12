@@ -126,6 +126,10 @@ func (w *p2cWriter) Start() {
 
 			// build statements
 			smt, err := tx.Prepare(sql)
+			if err != nil {
+				fmt.Printf("Error: prepare statement: %s\n", err.Error())
+			}
+			defer smt.Close() // danger!
 			for _, req := range reqs {
 				if err != nil {
 					fmt.Printf("Error: prepare statement: %s\n", err.Error())
