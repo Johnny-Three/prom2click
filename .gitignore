@@ -1,2 +1,4 @@
 bin
 prom2click
+*/.idea/
+.idea/
