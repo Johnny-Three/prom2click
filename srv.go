@@ -56,7 +56,7 @@ func NewP2CServer(conf *config) (*p2cServer, error) {
 		c.writers = append(c.writers, writer)
 	}
 
-	c.reader, err = NewP2CReader(conf)
+	c.reader, err = NewP2CReader(conf,jm)
 	if err != nil {
 		fmt.Printf("Error creating clickhouse reader: %s\n", err.Error())
 		return c, err

@@ -11,11 +11,13 @@ import (
 	"time"
 	"reflect"
 	"bytes"
+	"github.com/prom2click/job"
 )
 
 type p2cReader struct {
 	conf *config
 	db   *sql.DB
+	jm   *job.JobManager
 }
 
 // getTimePeriod return select and where SQL chunks relating to the time period -or- error
@@ -109,10 +111,11 @@ func (r *p2cReader) getSQL(query *remote.Query) (string, error) {
 	return sql, nil
 }
 
-func NewP2CReader(conf *config) (*p2cReader, error) {
+func NewP2CReader(conf *config, jm *job.JobManager) (*p2cReader, error) {
 	var err error
 	r := new(p2cReader)
 	r.conf = conf
+	r.jm = jm
 	r.db, err = sql.Open("clickhouse", r.conf.ChDSN)
 	r.db.SetMaxOpenConns(100)
 	r.db.SetMaxIdleConns(10)
@@ -148,6 +151,7 @@ func (r *p2cReader) Read(req *remote.ReadRequest) (*remote.ReadResponse, error) 
 		// remove me..
 		fmt.Printf("\nquery: start: %s, end: %s\n\n", tm1.Format("2006-01-02 03:04:05 PM"), tm2.Format("2006-01-02 03:04:05 PM"))
 		fmt.Printf("\nsql comes from prometheus %s\n", q.String())
+
 		// get the select sql
 		sqlStr, err = r.getSQL(q)
 		fmt.Printf("query: running sql: %s\n\n", sqlStr)
